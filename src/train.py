@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 # from pathlib import Path
 import random
 import torch
@@ -8,23 +9,23 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from torch.utils.tensorboard.writer import SummaryWriter
+from argparse import ArgumentParser
 
 from .dataset import LatexOCRDataset
 from .utils.utils import (dl_collate_pad, post_process, get_latest_ckpt, seed_everything)
 from .models.model import build_model, LatexModel
 from .metrics import eval_model
 from .config import Config
-from .dstransforms import train_transforms, val_transforms
+from .utils.dstransforms import get_transforms
 
 
-CONF = Config()
-
-
-def evaluate(model: LatexModel, device, max_batch=0x3f3f3f, sample_freq=5,):
+def evaluate(model: LatexModel, device, conf: Config, max_batch=0x3f3f3f, sample_freq=5, ):
+    val_transforms = get_transforms(conf.min_img_size, conf.max_img_size, mode="val")
     val_ds = LatexOCRDataset(
-        CONF.dataset_val,
-        tex_file = CONF.tex_file,
+        conf.dataset_val,
+        tex_file = conf.tex_file,
         transforms=val_transforms,
+        tokenizer_path=conf.tokenizer_path,
     )
     val_loader = DataLoader(
         val_ds,
@@ -46,8 +47,8 @@ def evaluate(model: LatexModel, device, max_batch=0x3f3f3f, sample_freq=5,):
             loss = F.cross_entropy(
                 logits,
                 xo.to(torch.long),
-                label_smoothing=CONF.label_smooth,
-                # ignore_index=CONF.pad_token,
+                label_smoothing=conf.label_smooth,
+                # ignore_index=conf.pad_token,
             )
             val_loss += loss.item()
             loss_count += 1
@@ -72,12 +73,12 @@ def evaluate(model: LatexModel, device, max_batch=0x3f3f3f, sample_freq=5,):
     return res
 
 def train(data_loader: DataLoader, model: LatexModel, optimizer: optim.Optimizer,
-          scheduler: optim.lr_scheduler._LRScheduler,
+          scheduler: optim.lr_scheduler._LRScheduler, conf: Config,
           tb: SummaryWriter, epoch: int, cmt: str, accum_grd_step: int, device: str,
           eval_freq: int=5000,):
     model.train()
     ds_len = len(data_loader)
-    ckpt_name = CONF.ckpt_path / (cmt + f"-ep_{epoch}.pth")
+    ckpt_name = Path(conf.ckpt_path) / (cmt + f"-ep_{epoch}.pth")
     for it, (img, tgt) in enumerate(tqdm(data_loader)):
         sample_count = epoch*ds_len+it
         # optimizer.zero_grad()
@@ -87,8 +88,8 @@ def train(data_loader: DataLoader, model: LatexModel, optimizer: optim.Optimizer
         loss = F.cross_entropy(
             logits,
             xo.to(torch.long),
-            label_smoothing=CONF.label_smooth,
-            # ignore_index=CONF.pad_token,
+            label_smoothing=conf.label_smooth,
+            # ignore_index=conf.pad_token,
         )
         if accum_grd_step > 1:
             loss /= accum_grd_step
@@ -99,16 +100,16 @@ def train(data_loader: DataLoader, model: LatexModel, optimizer: optim.Optimizer
         if (it + 1) % accum_grd_step == 0:
             optimizer.step()
             optimizer.zero_grad()
-            if optimizer.param_groups[0]['lr'] > CONF.lr_min:
+            if optimizer.param_groups[0]['lr'] > conf.lr_min:
                 scheduler.step()
             # evaluate
             if (it + 1) % eval_freq == 0:
                 model.eval()
-                res = evaluate(model, device, max_batch=CONF.eval_batch, sample_freq=20)
+                res = evaluate(model, device, conf, max_batch=conf.eval_batch, sample_freq=20)
                 tb.add_scalar("eval/loss", res["val_loss"], sample_count)
                 tb.add_scalar("eval/bleu4", res["bleu"], sample_count)
                 tb.add_scalar("eval/distance", res["edist"], sample_count)
-                pred_sample_str = CONF.pred_sample_md_template.format(true_sample=res['sample_true'], pred_sample=res['sample_pred'])
+                pred_sample_str = conf.pred_sample_md_template.format(true_sample=res['sample_true'], pred_sample=res['sample_pred'])
                 tb.add_text("eval/predict_sample", pred_sample_str, sample_count)
                 model.train()
 
@@ -120,10 +121,10 @@ def train(data_loader: DataLoader, model: LatexModel, optimizer: optim.Optimizer
     print(f"Saved to {ckpt_name}")
 
     model.eval()
-    res  = evaluate(model, device, max_batch=100, sample_freq=20)
+    res  = evaluate(model, device, conf, max_batch=100, sample_freq=20)
     tb.add_scalar("train/val_bleu4", res["bleu"], epoch)
     tb.add_scalar("train/edit_distance", res["edist"], epoch)
-    pred_sample_str = CONF.pred_sample_md_template.format(true_sample=res['sample_true'], pred_sample=res['sample_pred'])
+    pred_sample_str = conf.pred_sample_md_template.format(true_sample=res['sample_true'], pred_sample=res['sample_pred'])
     tb.add_text("train/predict_sample", pred_sample_str, epoch)
     print((
             f"epoch: [{epoch}], "
@@ -132,55 +133,57 @@ def train(data_loader: DataLoader, model: LatexModel, optimizer: optim.Optimizer
     return res["bleu"]
 
 
-def main():
+def main(conf: Config):
+    train_transforms = get_transforms(conf.min_img_size, conf.max_img_size, mode="train")
     ds_train = LatexOCRDataset(
-        dpath=CONF.dataset_train,
-        tex_file=CONF.tex_file,
+        dpath=conf.dataset_train,
+        tex_file=conf.tex_file,
         transforms=train_transforms,
+        tokenizer_path=conf.tokenizer_path
     )
     train_loader = DataLoader(
         dataset=ds_train,
-        batch_size=CONF.batch_size,
+        batch_size=conf.batch_size,
         shuffle=True,
         pin_memory=True,
         num_workers=15,
         collate_fn=dl_collate_pad,
     )
 
-    if CONF.device:
-        device = CONF.device
+    if conf.device:
+        device = conf.device
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
     model = build_model(
-        img_size=CONF.max_img_size,
-        patch_size=CONF.psize,
-        in_chans=CONF.in_chans,
-        model_dim=CONF.mdim,
-        num_head=CONF.nhead,
-        dropout=CONF.pdrop,
-        enc_depth=CONF.enc_depth,
-        enc_convdepth=CONF.enc_convdepth,
-        dec_depth=CONF.dec_depth,
-        vocab_size=CONF.vocab_size,
-        max_seq_len=CONF.max_seq,
-        temperature=CONF.temperature,
-        kernel_size=CONF.kernel_size,
-        model_name=CONF.model_name,
-        next_depths=CONF.next_depths,
-        next_dims=CONF.next_dims,
-        pdrop_path=CONF.pdrop_path,
+        img_size=conf.max_img_size,
+        patch_size=conf.psize,
+        in_chans=conf.in_chans,
+        model_dim=conf.mdim,
+        num_head=conf.nhead,
+        dropout=conf.pdrop,
+        enc_depth=conf.enc_depth,
+        enc_convdepth=conf.enc_convdepth,
+        dec_depth=conf.dec_depth,
+        vocab_size=conf.vocab_size,
+        max_seq_len=conf.max_seq,
+        temperature=conf.temperature,
+        kernel_size=conf.kernel_size,
+        model_name=conf.model_name,
+        next_depths=conf.next_depths,
+        next_dims=conf.next_dims,
+        pdrop_path=conf.pdrop_path,
         device=device,
     )
 
     # optimizer = optim.AdamW(model.parameters(), lr=LR, betas=(0.9, 0.999))
-    optimizer = optim.Adam(model.parameters(), lr=CONF.lr, betas=CONF.betas)
+    optimizer = optim.Adam(model.parameters(), lr=conf.lr, betas=conf.betas)
     # optimizer = optim.SGD(model.parameters(), lr=LR, momentum=0.9)
     scheduler = optim.lr_scheduler.StepLR(
-        optimizer, step_size=int(CONF.grad_adj_freq/CONF.accum_grd_step),
-        gamma=CONF.grad_gamma, verbose=False)
+        optimizer, step_size=int(conf.grad_adj_freq/conf.accum_grd_step),
+        gamma=conf.grad_gamma, verbose=False)
     # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", factor=0.8, patience=3)
 
-    cmt = str(CONF)
+    cmt = str(conf)
     tb = SummaryWriter(comment=cmt, )
     # input_img = torch.randn(10, 1, 192, 896)
     # input_tgt = torch.randint(3, 8000, (10, 300))
@@ -188,44 +191,53 @@ def main():
     tb.add_graph(model, (input_img.to(device), input_tgt.to(device)))
     tb.add_image("train/image", tv.utils.make_grid(input_img), 0)
 
-    # latest_ckpt = get_latest_ckpt(CONF.ckpt_path, cmt)
-    # # latest_ckpt = "checkpoints/model-vit-dsfull-dim512-ps16-ks7-enc4-dec4-encconv4-adam-lr5e-05-lsmooth0.0-t0.2-drop0.0-vsize8000-seq1024-bs8-accu1-extra_clstoken_APE-ep_3.pth"
-    # # latest_ckpt = ""
-    # if latest_ckpt:
-    #     print(f"found latest ckpt [{latest_ckpt}], loading....")
-    #     model.load_state_dict(torch.load(latest_ckpt, map_location=device))
-    if CONF.load_resume:
-        if os.path.exists(CONF.resume_model):
-            model.load_state_dict(torch.load(CONF.resume_model, map_location=device))
-            print(f"[Resume] Loading model {CONF.resume_model}")
-        if os.path.exists(CONF.resume_optim):
-            optimizer.load_state_dict(torch.load(CONF.resume_optim, map_location=device))
-            print(f"[Resume] Loading optimizer {CONF.resume_optim}")
-        if os.path.exists(CONF.resume_sche):
-            scheduler.load_state_dict(torch.load(CONF.resume_sche, map_location=device))
-            print(f"[Resume] Loading scheduler {CONF.resume_sche}")
-    # evaluate(model, device, sample_freq=10, max_batch=0x3f3f3f)
+    # latest_ckpt = get_latest_ckpt(conf.ckpt_path, cmt)
+    # latest_ckpt = "checkpoints/model-convnext-dsfull-dim64,128,256,512-enc3,3,9,3-dec4-adam-lr0.0001-lsmooth0.0-t0.2-drop0.0-vsize8000-seq512-bs16-accu1-extra_-ep_20.pth"
+    # latest_ckpt = conf.checkpoint
+    latest_ckpt = ""
+    if latest_ckpt:
+        print(f"found latest ckpt [{latest_ckpt}], loading....")
+        model.load_state_dict(torch.load(latest_ckpt, map_location=device))
+    if conf.load_resume:
+        if os.path.exists(conf.resume_model):
+            model.load_state_dict(torch.load(conf.resume_model, map_location=device))
+            print(f"[Resume] Loading model {conf.resume_model}")
+        if os.path.exists(conf.resume_optim):
+            optimizer.load_state_dict(torch.load(conf.resume_optim, map_location=device))
+            print(f"[Resume] Loading optimizer {conf.resume_optim}")
+        if os.path.exists(conf.resume_sche):
+            scheduler.load_state_dict(torch.load(conf.resume_sche, map_location=device))
+            print(f"[Resume] Loading scheduler {conf.resume_sche}")
+    # evaluate(model, device, conf, sample_freq=10, max_batch=0x3f3f3f)
 
     try:
-        for epoch in range(CONF.epoch_start, CONF.epoch_stop):
+        for epoch in range(conf.epoch_start, conf.epoch_stop):
                 train(
                     train_loader, model, optimizer, scheduler,
+                    conf,
                     tb, epoch,
-                    cmt, CONF.accum_grd_step, device,
-                    eval_freq=CONF.eval_freq,
+                    cmt, conf.accum_grd_step, device,
+                    eval_freq=conf.eval_freq,
                 )
             # scheduler.step()
     except KeyboardInterrupt:
         # save model
-        torch.save(model.state_dict(), CONF.resume_model)
+        torch.save(model.state_dict(), conf.resume_model)
         # save optimizer
-        torch.save(optimizer.state_dict(), CONF.resume_optim)
+        torch.save(optimizer.state_dict(), conf.resume_optim)
         # save scheduler
-        torch.save(scheduler.state_dict(), CONF.resume_sche)
+        torch.save(scheduler.state_dict(), conf.resume_sche)
 
     tb.close()
 
 
 if __name__ == "__main__":
-    seed_everything(CONF.seed)
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("-c", dest="config", type=str, help=".json config file path")
+
+    args = parser.parse_args([
+        "-c", "src/config/config_convnext.json",
+    ])
+    conf = Config(args.config)
+    seed_everything(conf.seed)
+    main(conf=conf)

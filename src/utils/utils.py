@@ -9,34 +9,66 @@ from torch.nn.utils.rnn import pad_sequence
 from tokenizers import Tokenizer
 from tokenizers.models import BPE
 
-from ..config import Config
-
-CONF = Config()
+_buckets = [32, 64, 96, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896]
 
 
 def dl_collate_pad(batch):
     # B C H W
-    data = [b[0] for b in batch]
+    data: List[torch.Tensor] = [b[0] for b in batch]
     # [B * tokenizers.Encoding]
-    tgt = [b[1] for b in batch]
+    tgt: List[torch.Tensor] = [torch.Tensor(b[1]).to(torch.int32) for b in batch]
     del batch
     # pad tgt
-    ids = [torch.Tensor(t).to(torch.int32) for t in tgt]
     # B * max(t.num_tokens)
-    tgt = pad_sequence(ids, batch_first=True, padding_value=CONF.pad_token)
+    tgt: torch.Tensor = pad_sequence(tgt, batch_first=True, padding_value=0)
     # pad data
-    max_dim_h = max([d.shape[-2] for d in data])
-    max_dim_w = max([d.shape[-1] for d in data])
+    buckets = [[i, j] for i in _buckets for j in _buckets]
+    max_dim_h, max_dim_w = get_max_hw(data)
+    # max_dim_h = max([d.shape[-2] for d in data])
+    # max_dim_w = max([d.shape[-1] for d in data])
     # print(max_dim_h, max_dim_w)
+    new_size = get_new_size((max_dim_h, max_dim_w), buckets=buckets)
     data = torch.cat(
         [
-            VF.pad(d, [0, 0, max_dim_w-d.shape[-1], max_dim_h-d.shape[-2]], 0) 
+            # VF.pad(d, [0, 0, max_dim_w-d.shape[-1], max_dim_h-d.shape[-2]], 0) 
+            VF.pad(d, [0, 0, new_size[1]-d.shape[-1], new_size[0]-d.shape[-2]], 0) 
             for d in data
         ],
         dim = 0,
     ).unsqueeze(1)
 
     return [data, tgt]
+
+
+def get_max_hw(data: List[torch.Tensor]):
+    mh, mw = 0, 0
+    for d in data:
+        if d.shape[-2] > mh:
+            mh = d.shape[-2]
+        if d.shape[-1] > mw:
+            mw = d.shape[-1]
+    return (mh, mw)
+
+
+def get_new_size(old_size, buckets):
+    """Computes new size from buckets
+    from https://github.com/LinXueyuanStdio/LaTeX_OCR_PRO
+    Args:
+        old_size: (width, height) or (height, width)
+        buckets: list of sizes
+    Returns:
+        new_size: shape same as old_size,
+            original size or first bucket in iter order that matches the size.
+    """
+    if buckets is None:
+        return old_size
+    else:
+        d1, d2 = old_size
+        for (d1_b, d2_b) in buckets:
+            if d1_b >= d1 and d2_b >= d2:
+                return d1_b, d2_b
+        # no match, return max (last one)
+        return buckets[-1]
 
 
 def to_2tuple(t: Union[Tuple, int]):
@@ -140,33 +172,4 @@ def get_model_param_size(model):
 
 
 if __name__ == '__main__':
-    from ..models.model import build_model, LatexModel
-    from ..config import Config
-    C = Config()
-    model = build_model(
-        img_size=CONF.max_img_size,
-        patch_size=CONF.psize,
-        in_chans=CONF.in_chans,
-        model_dim=CONF.mdim,
-        num_head=CONF.nhead,
-        dropout=CONF.pdrop,
-        enc_depth=CONF.enc_depth,
-        enc_convdepth=CONF.enc_convdepth,
-        dec_depth=CONF.dec_depth,
-        vocab_size=CONF.vocab_size,
-        max_seq_len=CONF.max_seq,
-        temperature=CONF.temperature,
-        kernel_size=CONF.kernel_size,
-        model_name=CONF.model_name,
-        next_depths=CONF.next_depths,
-        next_dims=CONF.next_dims,
-        pdrop_path=CONF.pdrop_path,
-        device="cpu",
-    )
-    model.load_state_dict(
-        torch.load(
-            "",
-            map_location="cpu",
-        )
-    )
-    print(get_model_param_size(model))
+    ...

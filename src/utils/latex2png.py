@@ -103,7 +103,7 @@ class Latex(object):
                         int(result[0]), len(self.math)))
             # pngfile = os.path.join(workdir, infile.replace('.tex', '.png'))
             pngfile = os.path.join(workdir, infile.replace('.tex', ''))
-            dpi = random.randint(150, 300)
+            dpi = random.randint(110, 300)
             cmd = (
                 # "convert "
                 # "-alpha off "
@@ -267,7 +267,7 @@ if __name__ == '__main__':
             # "-b", "broken_imgs.json",
             "-f", "txt",
             "--input-file", "dataset/data/full_math.txt",
-            "-w", "/home/rainy/latexocrData/full_set_new",
+            "-w", "/home/rainy/latexocrData/full_set_new1",
         ],
     )
     # mode 1, only --equation

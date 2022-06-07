@@ -3,3 +3,10 @@ deploy/checkpoint/
 tmp/
 src/config.py
 ds_utils.py
+checkpoints/
+.vscode/
+dataset/
+runs/
+interupt_resume/
+good_ckpt/
+test/test_img/

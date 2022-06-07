@@ -16,22 +16,20 @@ from .utils.customtransforms import PadMaxResize
 from .utils.utils import dl_collate_pad
 
 
-CONF = Config()
-
-
 class LatexOCRDataset(Dataset):
     img_path: Union[str, Path, None] = None
     tex_strs: Union[str, None] = None
     _len_: int = 0
-    _default_tokenizer_ = "dataset/data/tokenizer_norm1_no_obj.json"
+    _default_tokenizer_ = "dataset/data/tokenizer.json"
 
     def __init__(
             self, dpath: Union[str, Path],
             tex_file: Union[str, Path],
             transforms: nn.Module = None,
             imgfmt: str = "png",
-            tokenizer: Tokenizer = None,
-    ) -> None:
+            tokenizer_path: str = None,
+            bos_token: int = 1,
+            eos_token: int = 2,):
         super().__init__()
         if isinstance(dpath, str):
             dpath = Path(dpath)
@@ -42,11 +40,15 @@ class LatexOCRDataset(Dataset):
         assert self.dpath.exists() and self.tex_file.exists(), f"dataset {self.dpath} or tex file is not exists!"
         self.imgfmt = imgfmt
         self.transforms = transforms
-        self.tokenizer = tokenizer if tokenizer is not None else self.load_tokenizer(self._default_tokenizer_)
+        self.tokenizer = self.load_tokenizer(tokenizer_path)
+        self.bos_token = bos_token
+        self.eos_token = eos_token
 
         self.init_dataset()
 
     def load_tokenizer(self, path: str, inplace=False):
+        path = path or self._default_tokenizer_
+        # print(f"Using tokenizer {path}")
         tokenizer = Tokenizer(BPE())
         tokenizer = tokenizer.from_file(path)
         if inplace:
@@ -97,7 +99,7 @@ class LatexOCRDataset(Dataset):
     def __getitem__(self, idx):
         img = tv.io.read_image(self.img_path[idx], mode=tv.io.ImageReadMode.GRAY)
         tex = self.tokenizer.encode(self.tex_strs[idx])
-        tex_ids = [CONF.bos_token, *tex.ids, CONF.eos_token]
+        tex_ids = [self.bos_token, *tex.ids, self.eos_token]
         # tex_atnmsk = [1, *tex.attention_mask, 1]
         if self.transforms is not None:
             img = self.transforms(img.to(torch.float16))

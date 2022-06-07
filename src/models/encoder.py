@@ -281,7 +281,9 @@ class LatexConvNeXtEncoder(nn.Module):
         for i in range(4):
             x = self.downsample_layers[i](x)
             x = self.stages[i](x)
-        x = self.norm(rearrange(x, "n c h w -> n (h w) c"))
+        # x = self.norm(rearrange(x, "n c h w -> n (h w) c"))
+        b, c, h, w = x.shape
+        x = self.norm(x.permute(0, 2, 3, 1).reshape(b, h*w, c))
         return x
 
 

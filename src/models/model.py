@@ -38,24 +38,23 @@ class LatexModel(nn.Module):
             tgt_mask = nn.Transformer.generate_square_subsequent_mask(x.shape[1]).to(torch.bool).to(x.device)
             # topk and sample
             logits = self.decoder(x, memory, tgt_mask=tgt_mask)[:, -1, :]  # B * vocab_size
-            k = int((1 - self.filter_thres) * logits.shape[-1])
-            val, idx = torch.topk(logits, k)
-            probs = torch.full_like(logits, float("-inf"))
-            probs.scatter_(1, idx, val)
-            probs = F.softmax(probs/self.temperature, dim=-1)
-            sample = torch.multinomial(probs, 1)
+            # k = int((1 - self.filter_thres) * logits.shape[-1])
+            # val, idx = torch.topk(logits, k)
+            # probs = torch.full_like(logits, float("-inf"))
+            # probs.scatter_(1, idx, val)
+            # probs = F.softmax(probs/self.temperature, dim=-1)
+            # sample = torch.multinomial(probs, 1)
             # argmax prob sample
-            # probs = F.softmax(logits/self.temperature, dim=-1)
-            # sample = probs.argmax(dim=-1).unsqueeze(1)
+            probs = F.softmax(logits/self.temperature, dim=-1)
+            sample = probs.argmax(dim=-1, keepdim=True)
             # if generate all pad_token, stop
             end_pad = (sample == self.pad_token).all()
             if end_pad:
                 sample = torch.ones_like(sample) * self.eos_token
             out = torch.cat((out, sample), dim=-1)
             end_eos = (torch.cumsum(out == self.eos_token, 1)[:, -1] >= 1).all()
-            if end_eos:
+            if bool(end_eos):
                 break
-        out = out[:, t:]
         return out
 
     @torch.no_grad()
@@ -71,36 +70,54 @@ class LatexModel(nn.Module):
         )
         return output
 
-    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor=None, generate: bool=False) -> torch.Tensor:
         """ autoregressive
             tgt should be target[:, :-1], shape: B * (T-1)
+            if generate, return the generated code, else return logits
         """
-        memory: torch.Tensor = self.encoder(src, )
-        # (T-1) * (T-1)
-        tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt.shape[1]).bool().to(tgt.device)
-        # tgt_key_padding_mask = (tgt == self.pad_token).to(torch.bool).to(tgt.device)
-        # B * (T-1) * num_tokens
-        decoded: torch.Tensor = self.decoder(
-            tgt, memory, tgt_mask=tgt_mask,
-            # tgt_key_padding_mask=tgt_key_padding_mask,
-        )
-        return decoded.transpose(1, 2)
+        if not generate:
+            assert tgt is not None, f"must provide tgt if not generate"
+            memory: torch.Tensor = self.encoder(src, )
+            # (T-1) * (T-1)
+            tgt_mask = nn.Transformer.generate_square_subsequent_mask(tgt.shape[1]).bool().to(tgt.device)
+            # tgt_key_padding_mask = (tgt == self.pad_token).to(torch.bool).to(tgt.device)
+            # B * (T-1) * num_tokens
+            decoded: torch.Tensor = self.decoder(
+                tgt, memory, tgt_mask=tgt_mask,
+                # tgt_key_padding_mask=tgt_key_padding_mask,
+            )
+            return decoded.transpose(1, 2)
+        else:
+            memory: torch.Tensor = self.encoder(src, )
+            # B * 1
+            start_tokens = torch.LongTensor([self.bos_token]*src.shape[0]).unsqueeze(1).to(src.device)
+            # B * T
+            output = self.generate(
+                start_tokens=start_tokens,
+                memory=memory,
+                seq_len=self.max_seq_len,
+            )
+            return output
 
 
-def build_model_deploy(
-        in_chans: int=1, model_dim: int=256, num_head: int=16, dropout: float=0.1, 
-        dec_depth: int=6, temperature: float=1.,
-        vocab_size: int=8000, max_seq_len=512, ff_dim :int=2048,
+def get_encoder(
+        in_chans=1,
         next_depths: List[int]=[3, 3, 9, 3], next_dims: List[int]=[64, 128, 256, 512], 
-        pdrop_path: float=0.0,
-        device: str="cpu",
-    ):
-    encoder = LatexConvNeXtEncoder(
+        pdrop_path: float=0.0,):
+    encoder = LatexConvNeXtEncoder(  # type: ignore
             in_chans=in_chans,
             depths=next_depths,
             dims=next_dims,
             drop_path_rate=pdrop_path,
     )
+    return encoder
+
+
+def get_decoder(
+    model_dim: int=256, num_head: int=16, dropout: float=0.1,
+    vocab_size: int=8000, max_seq_len=512, ff_dim :int=2048,
+    dec_depth: int=6,
+    ):
     decoder = LatexTransformerDecoder(
         model_dim=model_dim,
         nhead=num_head,
@@ -110,16 +127,7 @@ def build_model_deploy(
         max_seq_len=max_seq_len,
         ff_dim=ff_dim,
     )
-
-    model = LatexModel(
-        encoder=encoder,
-        decoder=decoder,
-        max_seq_len=max_seq_len,
-        temperature=temperature,
-    ).to(device)
-
-    return model
-
+    return decoder
 
 
 def build_model(
@@ -127,11 +135,10 @@ def build_model(
         in_chans: int=1, model_dim: int=256, num_head: int=16, dropout: float=0.1, 
         enc_depth: int=2, dec_depth: int=6, temperature: float=1.,
         vocab_size: int=8000, max_seq_len=512, ff_dim :int=2048,
-        kernel_size: int=7, model_name: str="vit", enc_convdepth: int=2,
+        kernel_size: int=7, model_name: str="convnext", enc_convdepth: int=2,
         next_depths: List[int]=[3, 3, 9, 3], next_dims: List[int]=[64, 128, 256, 512], 
         pdrop_path: float=0.0,
-        device: str="cpu",
-    ):
+        device: str="cpu",):
     assert model_name in __supported_encoder__, f"model name {model_name} not implemented"
     if model_name == "vit":
         encoder = LatexVITEncoder(

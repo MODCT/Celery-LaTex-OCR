@@ -1,4 +1,5 @@
 # from pathlib import Path
+from argparse import ArgumentParser
 import torch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -8,11 +9,10 @@ from .utils.utils import (dl_collate_pad, post_process, get_latest_ckpt, seed_ev
 from .models.model import build_model, LatexModel
 from .metrics import eval_model
 from .config import Config
-from .dstransforms import val_transforms, deploy_transforms
+from .utils.dstransforms import get_transforms
 
-CONF = Config()
 
-def evaluate(model: LatexModel, device, val_ds, val_loader, max_batch=0x3f3f3f, sample_freq=20,):
+def evaluate(model: LatexModel, device, val_ds: LatexOCRDataset, val_loader, max_batch=0x3f3f3f, sample_freq=20,):
     print("Evaluating...")
     pred_strs = []
     true_strs = []
@@ -31,10 +31,11 @@ def evaluate(model: LatexModel, device, val_ds, val_loader, max_batch=0x3f3f3f, 
     bleu, exact_match, edit_distance = eval_model(true_strs, pred_strs)
 
 
-def main():
+def main(conf: Config):
+    val_transforms = get_transforms(conf.min_img_size, conf.max_img_size, "val")
     val_ds = LatexOCRDataset(
-        CONF.dataset_val,
-        tex_file=CONF.tex_file,
+        conf.dataset_val,
+        tex_file=conf.tex_file,
         transforms=val_transforms,
         # transforms=deploy_transforms,
     )
@@ -50,32 +51,40 @@ def main():
     # device = "cpu"
 
     model = build_model(
-        img_size=CONF.max_img_size,
-        patch_size=CONF.psize,
-        in_chans=CONF.in_chans,
-        model_dim=CONF.mdim,
-        num_head=CONF.nhead,
-        dropout=CONF.pdrop,
-        enc_depth=CONF.enc_depth,
-        enc_convdepth=CONF.enc_convdepth,
-        dec_depth=CONF.dec_depth,
-        vocab_size=CONF.vocab_size,
-        max_seq_len=CONF.max_seq,
-        temperature=CONF.temperature,
-        kernel_size=CONF.kernel_size,
-        model_name=CONF.model_name,
-        next_depths=CONF.next_depths,
-        next_dims=CONF.next_dims,
-        pdrop_path=CONF.pdrop_path,
+        img_size=conf.max_img_size,
+        patch_size=conf.psize,
+        in_chans=conf.in_chans,
+        model_dim=conf.mdim,
+        num_head=conf.nhead,
+        dropout=conf.pdrop,
+        enc_depth=conf.enc_depth,
+        enc_convdepth=conf.enc_convdepth,
+        dec_depth=conf.dec_depth,
+        vocab_size=conf.vocab_size,
+        max_seq_len=conf.max_seq,
+        temperature=conf.temperature,
+        kernel_size=conf.kernel_size,
+        model_name=conf.model_name,
+        next_depths=conf.next_depths,
+        next_dims=conf.next_dims,
+        pdrop_path=conf.pdrop_path,
         device=device,
     )
     try:
-        print(f"Loading checkpoint {CONF.checkpoint}")
-        model.load_state_dict(torch.load(CONF.checkpoint, map_location=device))
+        print(f"Loading checkpoint {conf.checkpoint}")
+        model.load_state_dict(torch.load(conf.checkpoint, map_location=device))
     except Exception as e:
         print(f"Load checkpoint failed, {e}")
     evaluate(model, device, val_ds, val_loader, sample_freq=20)
 
  
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser()
+    parser.add_argument("-c", dest="config", type=str, help=".json config file path")
+
+    args = parser.parse_args([
+        "-c", "src/config/config_convnext.json",
+    ])
+    conf = Config(args.config)
+    seed_everything(conf.seed)
+    main(conf=conf)
