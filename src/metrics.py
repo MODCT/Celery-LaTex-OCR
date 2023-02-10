@@ -4,7 +4,6 @@ from Levenshtein import distance
 from nltk.translate.bleu_score import sentence_bleu
 
 def eval_model(references, hypotheses):
-    #用于在验证集上计算各种评价指标指导模型早停
     # Calculate scores
     bleu4 = 0.0
     for i, j in zip(references, hypotheses):

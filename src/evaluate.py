@@ -31,12 +31,45 @@ def evaluate(model: LatexModel, device, val_ds: LatexOCRDataset, val_loader, max
     bleu, exact_match, edit_distance = eval_model(true_strs, pred_strs)
 
 
-def main(conf: Config):
-    val_transforms = get_transforms(conf.min_img_size, conf.max_img_size, "val")
+def batch_shape(conf: Config):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    val_transforms = get_transforms(conf.min_img_size, conf.max_img_size, "deploy")
     val_ds = LatexOCRDataset(
         conf.dataset_val,
         tex_file=conf.tex_file,
         transforms=val_transforms,
+        tokenizer_path=conf.tokenizer_path,
+        # transforms=deploy_transforms,
+    )
+    val_ds[0]
+    # batch_size = 32
+    # val_loader = DataLoader(
+    #     val_ds,
+    #     batch_size=batch_size,
+    #     shuffle=True,
+    #     num_workers=15,
+    #     pin_memory=True,
+    #     collate_fn=dl_collate_pad,
+    # )
+    # batch_shape_all = []
+    # for it, (im, tgt) in enumerate(tqdm(val_loader)):
+    #     batch_shape_all.append(im.shape)
+    # data = np.array(batch_shape_all)
+    # plt.hist(data.T[-2], bins=50)
+    # plt.savefig(f"height_dis_{batch_size}.png", dpi=400)
+    # plt.clf()
+    # plt.hist(data.T[-1], bins=50)
+    # plt.savefig(f"width_dis_{batch_size}.png", dpi=400)
+
+
+def main(conf: Config):
+    val_transforms = get_transforms(conf.min_img_size, conf.max_img_size, "deploy")
+    val_ds = LatexOCRDataset(
+        conf.dataset_val,
+        tex_file=conf.tex_file,
+        transforms=val_transforms,
+        tokenizer_path=conf.tokenizer_path,
         # transforms=deploy_transforms,
     )
     val_loader = DataLoader(
@@ -48,7 +81,7 @@ def main(conf: Config):
         collate_fn=dl_collate_pad,
     )
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # device = "cpu"
+    device = "cpu"
 
     model = build_model(
         img_size=conf.max_img_size,
@@ -88,3 +121,4 @@ if __name__ == "__main__":
     conf = Config(args.config)
     seed_everything(conf.seed)
     main(conf=conf)
+    # batch_shape(conf=conf)

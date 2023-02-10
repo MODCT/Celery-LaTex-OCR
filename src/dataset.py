@@ -119,4 +119,6 @@ def generate_tokenizer(equations: List[str], output: str, vocab_size: int):
 
 
 if __name__ == "__main__":
-    ...
+    tex_file = "dataset/data/full_math.txt"
+    out = "src/config/tokenizer_new.json"
+    generate_tokenizer([tex_file], out, 8000)

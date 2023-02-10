@@ -17,26 +17,28 @@ class PositionalEmbedding(nn.Module):
         pe.require_grad = False
 
         position = torch.arange(0, max_len).float().unsqueeze(1)
-        div_term = (torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)).exp()
+        div_term = (
+            torch.arange(0, d_model, 2).float() * -(math.log(10000.0) / d_model)
+        ).exp()
 
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
 
         pe = pe.unsqueeze(0)
-        self.register_buffer('pe', pe)
+        self.register_buffer("pe", pe)
 
     def forward(self, x):
-        return self.pe[:, :x.size(1)]
+        return self.pe[:, : x.size(1)]
 
 
 class AbsolutePositionalEmbedding(nn.Module):
     def __init__(self, max_seq_len, emb_dim):
         super().__init__()
         self.emb = nn.Embedding(max_seq_len, emb_dim)
-        nn.init.normal_(self.emb.weight, std = 0.02)
+        nn.init.normal_(self.emb.weight, std=0.02)
 
     def forward(self, x):
-        n = torch.arange(x.shape[1], device = x.device)
+        n = torch.arange(x.shape[1], device=x.device)
         return self.emb(n)[None, :, :]
 
 
@@ -49,22 +51,31 @@ class SegmentEmbedding(nn.Module):
         nn.init.kaiming_normal_(self.pos_embed, nonlinearity="relu")
 
     def forward(self, x):
-        x += self.pos_embed[:, :x.shape[1]]
+        x += self.pos_embed[:, : x.shape[1]]
         return x
 
 
 class PatchEmbed(nn.Module):
-    """ 2D Image to Patch Embedding
-        Modified from timm.models.layers.patch_embed
-        URL: https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/layers/patch_embed.py
-        LICENSE:  Apache-2.0 license
-        Date: 2022.05.07
-        Use Conv2d to make patches
-        img_size is used to determin the `MAX` number of patches (num_patches)
-        the output result of `forward` will adjust according to the input shape
-        `NOTE`: the input image shape can't < patch_size
+    """2D Image to Patch Embedding
+    Modified from timm.models.layers.patch_embed
+    URL: https://github.com/rwightman/pytorch-image-models/blob/master/timm/models/layers/patch_embed.py
+    LICENSE:  Apache-2.0 license
+    Date: 2022.05.07
+    Use Conv2d to make patches
+    img_size is used to determin the `MAX` number of patches (num_patches)
+    the output result of `forward` will adjust according to the input shape
+    `NOTE`: the input image shape can't < patch_size
     """
-    def __init__(self, img_size=224, patch_size=16, in_chans=1, embed_dim=768, norm_layer=None, flatten=True):
+
+    def __init__(
+        self,
+        img_size=224,
+        patch_size=16,
+        in_chans=1,
+        embed_dim=768,
+        norm_layer=None,
+        flatten=True,
+    ):
         super().__init__()
         img_size = to_2tuple(img_size)
         patch_size = to_2tuple(patch_size)

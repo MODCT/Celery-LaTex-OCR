@@ -5,8 +5,8 @@ from PIL import Image
 from tqdm import tqdm
 from nltk.translate.bleu_score import sentence_bleu
 
-from ..deploy.utils.config import Config
-from ..deploy.models.model import get_model
+from ..deploy.src.utils.config import Config
+from ..deploy.src.models.model import get_model
 
 class DeployCMDTest(unittest.TestCase):
     img_paths = None
@@ -62,3 +62,6 @@ class DeployCMDTest(unittest.TestCase):
 
         print(f"BLEU4: {bleu4:.4f}")
 
+
+if __name__ == "__main__":
+    unittest.main()

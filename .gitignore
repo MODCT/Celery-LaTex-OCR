@@ -10,3 +10,5 @@ runs/
 interupt_resume/
 good_ckpt/
 test/test_img/
+third/
+notebooks/

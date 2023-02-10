@@ -50,7 +50,7 @@ if __name__ == "__main__":
     parser.add_argument("-i", dest="image", type=str, help="image to predict")
     parser.add_argument("-c", dest="config", type=str, help=".json config file")
     args = parser.parse_args([
-        "-i", "tmp/test-2.png",
+        "-i", "tmp/0.png",
         "-c", "src/config/config_convnext.json",
     ])
     seed_everything(241)

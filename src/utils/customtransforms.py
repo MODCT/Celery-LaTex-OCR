@@ -1,44 +1,72 @@
 from typing import Tuple, Union
+from matplotlib import pyplot as plt
+import numpy as np
 import torchvision as tv
 import torch
+import random
+import torch.nn as nn
 import torchvision.transforms.functional as VF
 from PIL import Image
 
 
 class DeployTransform(object):
+    _buckets_ = [32, 64, 96, 128, 192, 256, 320, 384, 448, 512, 576, 640, 704, 768, 832, 896]
     def __init__(self, transform, max_img_size):
         self.transform = transform
-        self.max_img_size = max_img_size
+        # self.max_img_size = max_img_size
+        self.buckets = [[i, j] for i in self._buckets_ for j in self._buckets_]
 
-    def pad_image(self, img):
+    def pad_image(self, img: torch.Tensor):
         """
             TODO: make pad image more clever, ie. don't pad all image to the max shape
         """
-        img = self.transform(img)
-        img = VF.pad(
-            img,
-            [0, 0, self.max_img_size[-1]-img.shape[-1], self.max_img_size[-2]-img.shape[-2]],
-            0,
-        )
+        # img: C H W
+        # new_size = self.get_new_size(img.shape[1:])
+        new_size = (192, 896)
+        pw = new_size[-1] - img.shape[-1]
+        ph = new_size[-2] - img.shape[-2]
+        # img = np.pad(img, ((0, 0), (0, ph), (0, pw)), "constant", constant_values=(0, ))
+        img = VF.pad(img, [0, 0, pw, ph], 0,)
         return img
+
+    def get_new_size(self, old_size: Tuple[int]):
+        d1, d2 = old_size
+        for (d1_b, d2_b) in self.buckets:
+            if d1_b >= d1 and d2_b >= d2:
+                return d1_b, d2_b
+        # no match, return max (last one)
+        return self.buckets[-1]
+
+    # def pad_image(self, img):
+    #     """
+    #         TODO: make pad image more clever, ie. don't pad all image to the max shape
+    #     """
+    #     img = self.transform(img)
+    #     img = VF.pad(
+    #         img,
+    #         [0, 0, self.max_img_size[-1]-img.shape[-1], self.max_img_size[-2]-img.shape[-2]],
+    #         0,
+    #     )
+    #     return img
 
     def __call__(self, img: Union[Image.Image, torch.Tensor]):
         if isinstance(img, Image.Image):
-            img = VF.to_tensor(img)
+            img = torch.Tensor(np.asarray(img))
+        img = self.transform(img)
         img = self.pad_image(img)
         return img
 
 
-class PadMaxResize(tv.transforms.Resize):
+class PadMaxResize(nn.Module):
     __max_iter__ = 10
     image_resizer = None
     def __init__(self, min_size: Tuple[int, int],  max_size: Tuple[int, int],
                  interpolation=tv.transforms.InterpolationMode.BILINEAR,
                 ):
-        super().__init__(1, interpolation,)
+        super().__init__()
         self.min_size = min_size
         self.max_size = max_size
-        # self.downsample = F.conv2d
+        self.interpolation = interpolation
 
     def pad_resize(self, img: torch.Tensor):
         _, h, w = img.shape
@@ -79,15 +107,38 @@ class PadMaxResize(tv.transforms.Resize):
             c = True
         return c
 
+    def random_resize(self, img: torch.Tensor):
+        # ratio in [0.5, 2]
+        ratio = random.randint(5, 20) / 10
+        # interp = tv.transforms.InterpolationMode.BILINEAR if ratio < 1 else tv.transforms.InterpolationMode.LANCZOS
+        newsize = (int(img.shape[-2]*ratio), int(img.shape[-1]*ratio))
+        img = VF.resize(img, newsize, self.interpolation)
+        return img
+
+    def crop_bbox(self, img: torch.Tensor):
+        if len(img.shape) == 3:
+            img = img[0]
+        bg = torch.full_like(img, 255)
+        diff = (img - bg).nonzero(as_tuple=True)
+        top, left = diff[0].min(), diff[1].min()
+        bot, right = diff[0].max(), diff[1].max()
+        img = VF.crop(img, top, left, bot-top+1, right-left+1)
+        return img.unsqueeze(0)
+
+    def save_img(self, img: torch.Tensor, name="test.png"):
+        plt.imsave(name, img.numpy()[0], cmap="gray")
+
     def forward(self, img: torch.Tensor):
         if img.shape[0] != 1:
-            img = VF.to_tensor(VF.to_grayscale(img))
+            img: np.ndarray = img.numpy()[0]
+            img = np.asarray(Image.fromarray(img.astype(np.uint8), mode="L"), dtype=np.float32)
+            img = torch.from_numpy(img).unsqueeze(0)
         # img = img.to(torch.uint8) - 255  # black background image
-        # plt.imsave("black.png", img.numpy()[0], cmap="gray")
-        # img = self.downsample(
-        #     img.to(torch.float).unsqueeze(0),
-        #     torch.ones(1, 1, 2, 2),  # in_chans, out_chans, kernel_size, kernel_size
-        #     stride=3).squeeze(0)
+        # self.save_img(img, "original.png")
+        img = self.crop_bbox(img)
+        # self.save_img(img, "crop_box.png")
+        img = self.random_resize(img)
+        self.save_img(img, "random_resize.png")
         it = 0
         while not self.is_img_valid(img) and it < self.__max_iter__:
             img = self.pad_resize(img)

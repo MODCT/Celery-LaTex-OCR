@@ -1,0 +1,34 @@
+[tool.poetry]
+name = "celery-latex-ocr"
+version = "0.1.0"
+description = "latex formulae OCR models"
+authors = ["rainyl <rainyliusy3@gmail.com>"]
+
+[tool.poetry.dependencies]
+python = ">=3.9,<3.11"
+numpy = ">=1.23.2"
+pandas = ">=1.4.4"
+pyarrow = ">=9.0.0"
+tokenizers = ">=0.12.1"
+matplotlib = ">=3.5.3"
+onnx = ">=1.12.0"
+onnxruntime = ">=1.12.1"
+einops = ">=0.4.1"
+timm = ">=0.6.7"
+torch = {url = "https://download.pytorch.org/whl/cu117/torch-1.13.1%2Bcu117-cp310-cp310-win_amd64.whl"}
+nltk = "^3.8.1"
+levenshtein = "^0.20.9"
+tensorboard = "^2.12.0"
+
+
+[tool.poetry.dev-dependencies]
+black = ">=22.8.0"
+ipykernel = ">=6.15.2"
+sympy = ">=1.11.1"
+
+[tool.poetry.group.dev.dependencies]
+black = "^23.1.0"
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
