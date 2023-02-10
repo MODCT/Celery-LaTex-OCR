@@ -88,7 +88,7 @@ class LatexOCRDataset(Dataset):
 
     def init_dataset(self):
         img_path = [s for s in self.dpath.glob(f"**/*.{self.imgfmt}")]
-        with open(self.tex_file, "r") as f:
+        with open(self.tex_file, "r", encoding="utf-8") as f:
             tex_list = f.readlines()
         assert len(tex_list) >= len(img_path), "number of tex string < images"
         tex_idxs = [int(s.name.split(".")[0]) for s in img_path]
