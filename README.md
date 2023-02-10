@@ -56,6 +56,10 @@ python -m src.dataset
 python -m src.utils.latex2png -i dataset/data/full_math.txt -w dataset/data/full_set -b 1
 ```
 
+## Issues
+
+Open an issue if you have any questions or a PR if you can fix it.
+
 ## TODO
 
 - [ ] API
