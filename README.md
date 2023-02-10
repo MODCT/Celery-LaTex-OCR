@@ -1,10 +1,14 @@
 # Celery-LaTex-OCR
 
-Yet another LaTex OCR Project written in PyTorch
+Yet another LaTex OCR Project written in PyTorch, based on ConvNeXt and Transformer.
+
+This project is the backend of [CeleryMath](https://github.com/MODCT/CeleryMath).
+
+Give us a star if this project helps you :hugs:
 
 ## Develop
 
-Any further develop and contributions are welcome :)
+Any further developments and contributions are welcome :smile:
 
 ### Training Instruction
 
@@ -19,8 +23,8 @@ poetry shell
 
 2. Create dataset.
 
-You can download generated dataset from [here](https://drive.google.com/file/d/1yF9xSRevWvCPPgebkkPFg7GAy0ctyTyN/view?usp=sharing)(2.05G)
-or generate by yourself with the following code:
+You can download generated dataset from [here (2.05G)](https://drive.google.com/file/d/1yF9xSRevWvCPPgebkkPFg7GAy0ctyTyN/view?usp=sharing)
+or generate by yourself with the following code, the generation may be slow:
 
 ```bash
 python -m src.utils.latex2png -i dataset/data/full_math.txt -w dataset/data/full_set -b 1
@@ -58,3 +62,15 @@ python -m src.utils.latex2png -i dataset/data/full_math.txt -w dataset/data/full
 - [x] Desktop Deploy, see [CeleryMath](https://github.com/MODCT/CeleryMath)
 - [x] ONNX
 - [ ] Use pytorch-lightning to manage training and evaluation
+
+## Acknowledgement
+
+This project was inspired by the following project, and some methods or codes were also
+borrowed from them, THANKS A LOT!!! :handshake:
+
+1. LaTex-OCR, LICENSE: MIT, [https://github.com/lukas-blecher/LaTeX-OCR](https://github.com/lukas-blecher/LaTeX-OCR)
+2. LaTeX_OCR_PRO, LICENSE: GPL-3.0, [https://github.com/LinXueyuanStdio/LaTeX_OCR_PRO](https://github.com/LinXueyuanStdio/LaTeX_OCR_PRO)
+
+## LICENSE
+
+GPL-3.0, details [here](LICENSE)
